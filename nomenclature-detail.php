@@ -307,6 +307,7 @@ function _getDetails(&$object, $object_type) {
                     $nome->loadByObjectId($PDOdb,$line->fk_product,'product');
                     $nome->fetchCombinedDetails($PDOdb);
                     $nome->setPrice($PDOdb, $line->qty, null, 'propal');
+
                     foreach ($nomenclature->TNomenclatureDetCombined as $fk_product => $det) {
                         $p = new Product($db);
                         $p->fetch($det->fk_product);
@@ -337,6 +338,8 @@ function _getDetails(&$object, $object_type) {
                         // Total pv
                         if (!isset($TProduct[$firstParentTitleId]['total']['pv'])) $TProduct[$firstParentTitleId]['total']['pv'] = $det->pv;
                         else $TProduct[$firstParentTitleId]['total']['pv'] += $det->pv;
+
+                        if ($conf->global->NOMENCLATURE_GET_RECURSIVE_DETAILS) _getRecDetails($PDOdb, $det, $TProduct, $firstParentTitleId);
                     }
                 }
 				else{ // Produit simple de la ligne
@@ -415,6 +418,57 @@ function _getDetails(&$object, $object_type) {
     return array($TProduct, $TWorkstation);
 }
 
+// get details recusively
+function _getRecDetails(&$PDOdb, &$object, &$TProduct, $firstParentTitleId)
+{
+    global $db; 
+    $nomenclature = new TNomenclature();
+    $nomenclature->loadByObjectId($PDOdb,$object->fk_product,'product');
+    $nomenclature->fetchCombinedDetails($PDOdb);
+    $nomenclature->setPrice($PDOdb, $object->qty, null, 'propal');
+
+    if (! empty($nomenclature->TNomenclatureDetCombined)){ //Produit de ligne de nomenclature contient une nomenclature
+        
+        foreach ($nomenclature->TNomenclatureDetCombined as $fk_product => $det) {
+            //if ($object->fk_product == $fk_product) continue;
+            if ($firstParentTitleId == 66) var_dump(array($object->fk_product, $fk_product, $det->fk_product));
+            $p = new Product($db);
+            $p->fetch($det->fk_product);
+            $det->type = $p->type;
+            if (empty($det->fk_unit)) $det->fk_unit = 1;
+            $det->unit = $p->getValueFrom('c_units', $det->fk_unit, 'label');
+            $det->qty = $det->qty * $object->qty;
+            //if ($firstParentTitleId == 66) var_dump(array('prod'=>$fk_product, "tab"=>$nomenclature->TNomenclatureDetCombined));
+            if (!isset($TProduct[$firstParentTitleId]['products'][$det->fk_product]))
+                $TProduct[$firstParentTitleId]['products'][$det->fk_product] = $det;
+            else {
+                    $TProduct[$firstParentTitleId]['products'][$det->fk_product]->qty += $det->qty;
+                    $TProduct[$firstParentTitleId]['products'][$det->fk_product]->calculate_price += $det->calculate_price;
+                    $TProduct[$firstParentTitleId]['products'][$det->fk_product]->charged_price += $det->charged_price;
+                    $TProduct[$firstParentTitleId]['products'][$det->fk_product]->pv += $det->pv;
+            }
+
+            // Total unit
+            if (!isset($TProduct[$firstParentTitleId]['total']['unit'][$det->unit])) $TProduct[$firstParentTitleId]['total']['unit'][$det->unit] = $det->qty;
+            else $TProduct[$firstParentTitleId]['total']['unit'][$det->unit] += $det->qty;
+
+            // Total calculate_price
+            if (!isset($TProduct[$firstParentTitleId]['total']['calculate_price'])) $TProduct[$firstParentTitleId]['total']['calculate_price'] = $det->calculate_price;
+            else $TProduct[$firstParentTitleId]['total']['calculate_price'] += $det->calculate_price;
+
+            // Total charged_price
+            if (!isset($TProduct[$firstParentTitleId]['total']['charged_price'])) $TProduct[$firstParentTitleId]['total']['charged_price'] = $det->charged_price;
+            else $TProduct[$firstParentTitleId]['total']['charged_price'] += $det->charged_price;
+
+            // Total pv
+            if (!isset($TProduct[$firstParentTitleId]['total']['pv'])) $TProduct[$firstParentTitleId]['total']['pv'] = $det->pv;
+            else $TProduct[$firstParentTitleId]['total']['pv'] += $det->pv;
+
+            _getRecDetails($PDOdb, $det, $TProduct, $firstParentTitleId);
+        }
+    }
+}
+
 // Product first then Services
 function sortByProductType($a) {
     if($a->type == Product::TYPE_PRODUCT) return -1;
@@ -422,6 +476,8 @@ function sortByProductType($a) {
 
     return 0;   // This should never append
 }
+
+
 
 function print_table($TData, $TWorkstation, $object_type) {
     global $db, $langs, $conf, $id;
